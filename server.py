@@ -74,8 +74,11 @@ class SubtitrariRoScraper(SubtitleScraper):
     def search(self, imdb_id: str, type: str, season: Optional[int] = None, episode: Optional[int] = None) -> List[Dict]:
         subtitles = []
         try:
+            # Remove 'tt' prefix from IMDB ID for this site
+            imdb_num = imdb_id.replace('tt', '')
+            
             # Search by IMDB ID
-            search_url = f"{self.BASE_URL}/index.php?page=cauta&z7={imdb_id}"
+            search_url = f"{self.BASE_URL}/index.php?page=cauta&z7={imdb_num}"
             
             logger.info(f"Searching subtitrari.ro with URL: {search_url}")
             response = self.session.get(search_url, timeout=10)
@@ -86,20 +89,22 @@ class SubtitrariRoScraper(SubtitleScraper):
             
             soup = BeautifulSoup(response.content, 'html.parser')
             
-            # Find subtitle entries
-            results = soup.find_all('div', class_='title') or soup.find_all('a', href=re.compile(r'subtitrare'))
+            # Find all hotposter links (the site uses this class for subtitle entries)
+            hotposters = soup.find_all('div', class_='hotposter')
             
-            for idx, result in enumerate(results[:10]):  # Limit to 10 results
+            for idx, hotposter in enumerate(hotposters[:10]):  # Limit to 10 results
                 try:
-                    if result.name == 'a':
-                        link = result.get('href', '')
-                        title = result.get_text(strip=True)
-                    else:
-                        link_tag = result.find('a')
-                        if not link_tag:
-                            continue
-                        link = link_tag.get('href', '')
-                        title = link_tag.get_text(strip=True)
+                    link_tag = hotposter.find('a')
+                    if not link_tag:
+                        continue
+                    
+                    link = link_tag.get('href', '')
+                    img_tag = link_tag.find('img')
+                    
+                    if not img_tag:
+                        continue
+                    
+                    title = img_tag.get('alt', '').replace('Subtitrare ', '')
                     
                     if not link or not title:
                         continue
@@ -121,6 +126,34 @@ class SubtitrariRoScraper(SubtitleScraper):
                 except Exception as e:
                     logger.error(f"Error parsing subtitle entry: {e}")
                     continue
+            
+            # Also try to find results from the "new subtitles" section
+            if len(subtitles) == 0:
+                links = soup.find_all('a', href=re.compile(r'subtitrare='))
+                for idx, link_tag in enumerate(links[:10]):
+                    try:
+                        link = link_tag.get('href', '')
+                        title = link_tag.get_text(strip=True)
+                        
+                        if not link or not title or title in ['', ' ']:
+                            continue
+                        
+                        # Make absolute URL
+                        if not link.startswith('http'):
+                            link = urljoin(self.BASE_URL, link)
+                        
+                        sub_id = f"subtitrari_{idx}_{imdb_id}"
+                        
+                        subtitles.append({
+                            "id": sub_id,
+                            "url": link,
+                            "lang": "rum",
+                            "title": f"[subtitrari.ro] {title}"
+                        })
+                        
+                    except Exception as e:
+                        logger.error(f"Error parsing subtitle link: {e}")
+                        continue
                     
         except Exception as e:
             logger.error(f"Error scraping subtitrari.ro: {e}")
@@ -195,8 +228,11 @@ class TitrariRoScraper(SubtitleScraper):
     def search(self, imdb_id: str, type: str, season: Optional[int] = None, episode: Optional[int] = None) -> List[Dict]:
         subtitles = []
         try:
+            # Remove 'tt' prefix from IMDB ID
+            imdb_num = imdb_id.replace('tt', '')
+            
             # Search by IMDB ID
-            search_url = f"{self.BASE_URL}/index.php?page=cauta&z7={imdb_id}"
+            search_url = f"{self.BASE_URL}/index.php?page=cauta&z7={imdb_num}"
             
             logger.info(f"Searching titrari.ro with URL: {search_url}")
             response = self.session.get(search_url, timeout=10)
@@ -207,20 +243,22 @@ class TitrariRoScraper(SubtitleScraper):
             
             soup = BeautifulSoup(response.content, 'html.parser')
             
-            # Find subtitle entries
-            results = soup.find_all('a', href=re.compile(r'subtitrare|id=')) or soup.find_all('div', class_='title')
+            # Find all hotposter links (same structure as subtitrari.ro)
+            hotposters = soup.find_all('div', class_='hotposter')
             
-            for idx, result in enumerate(results[:10]):
+            for idx, hotposter in enumerate(hotposters[:10]):
                 try:
-                    if result.name == 'a':
-                        link = result.get('href', '')
-                        title = result.get_text(strip=True)
-                    else:
-                        link_tag = result.find('a')
-                        if not link_tag:
-                            continue
-                        link = link_tag.get('href', '')
-                        title = link_tag.get_text(strip=True)
+                    link_tag = hotposter.find('a')
+                    if not link_tag:
+                        continue
+                    
+                    link = link_tag.get('href', '')
+                    img_tag = link_tag.find('img')
+                    
+                    if not img_tag:
+                        continue
+                    
+                    title = img_tag.get('alt', '').replace('Subtitrare ', '')
                     
                     if not link or not title:
                         continue
@@ -241,6 +279,33 @@ class TitrariRoScraper(SubtitleScraper):
                 except Exception as e:
                     logger.error(f"Error parsing subtitle entry: {e}")
                     continue
+            
+            # Also try direct subtitle links
+            if len(subtitles) == 0:
+                links = soup.find_all('a', href=re.compile(r'subtitrare='))
+                for idx, link_tag in enumerate(links[:10]):
+                    try:
+                        link = link_tag.get('href', '')
+                        title = link_tag.get_text(strip=True)
+                        
+                        if not link or not title or title in ['', ' ']:
+                            continue
+                        
+                        if not link.startswith('http'):
+                            link = urljoin(self.BASE_URL, link)
+                        
+                        sub_id = f"titrari_{idx}_{imdb_id}"
+                        
+                        subtitles.append({
+                            "id": sub_id,
+                            "url": link,
+                            "lang": "rum",
+                            "title": f"[titrari.ro] {title}"
+                        })
+                        
+                    except Exception as e:
+                        logger.error(f"Error parsing subtitle link: {e}")
+                        continue
                     
         except Exception as e:
             logger.error(f"Error scraping titrari.ro: {e}")
